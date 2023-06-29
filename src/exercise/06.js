@@ -12,18 +12,48 @@ import {
 
 const AppStateContext = React.createContext()
 const AppDispatchContext = React.createContext()
+// creo contexto del perro
+const DogContext = React.createContext()
 
 const initialGrid = Array.from({length: 100}, () =>
   Array.from({length: 100}, () => Math.random() * 100),
 )
 
+// Creo reducer del perro
+function dogReducer(state, action) {
+  switch (action.type) {
+    case 'TYPED_IN_DOG_INPUT': {
+      return {...state, dogName: action.dogName}
+    }
+    default: {
+      throw new Error(`Unhandled action type: ${action.type}`)
+    }
+  }
+}
+
+// creo dog provider
+function DogProvider(props) {
+  const [state, dispatch] = React.useReducer(dogReducer, {dogName: ''})
+  const value = [state, dispatch]
+  return <DogContext.Provider value={value} {...props} />
+}
+
+// creo hook para el perro
+function useDogState() {
+  const context = React.useContext(DogContext)
+  if (!context) {
+    throw new Error('useDogState must be used within the DogStateProvider')
+  }
+  return context
+}
+
 function appReducer(state, action) {
   switch (action.type) {
     // we're no longer managing the dogName state in our reducer
     // 💣 remove this case
-    case 'TYPED_IN_DOG_INPUT': {
-      return {...state, dogName: action.dogName}
-    }
+    // case 'TYPED_IN_DOG_INPUT': {
+    //   return {...state, dogName: action.dogName}
+    // }
     case 'UPDATE_GRID_CELL': {
       return {...state, grid: updateGridCellState(state.grid, action)}
     }
@@ -39,7 +69,7 @@ function appReducer(state, action) {
 function AppProvider({children}) {
   const [state, dispatch] = React.useReducer(appReducer, {
     // 💣 remove the dogName state because we're no longer managing that
-    dogName: '',
+    // dogName: '',
     grid: initialGrid,
   })
   return (
@@ -85,9 +115,53 @@ function Grid() {
 }
 Grid = React.memo(Grid)
 
-function Cell({row, column}) {
-  const state = useAppState()
-  const cell = state.grid[row][column]
+// extra 2:
+// Crea CellImpl, que es el memoizado con react memo.
+// function CellImpl({cell, row, column}) {
+//   const dispatch = useAppDispatch()
+//   const handleClick = () => dispatch({type: 'UPDATE_GRID_CELL', row, column})
+//   return (
+//     <button
+//       className="cell"
+//       onClick={handleClick}
+//       style={{
+//         color: cell > 50 ? 'white' : 'black',
+//         backgroundColor: `rgba(0, 0, 0, ${cell / 100})`,
+//       }}
+//     >
+//       {Math.floor(cell)}
+//     </button>
+//   )
+// }
+// CellImpl = React.memo(CellImpl)
+
+// extra 2: Cell usa CellImpl, y usa el useAppState
+// si hay una actualización de estado, Cell se re-renderiza y por lo tanto
+// re-renderiza a CellImpl que esta memoizado. Dado que Cell maneja estado
+// CellImpl va a re-renderizarse cuando cambie la Cell padre.
+// function Cell({row, column}) {
+//   const state = useAppState()
+//   const cell = state.grid[row][column]
+//   return <CellImpl cell={cell} row={row} column={column} />
+// }
+// Cell = React.memo(Cell)
+
+// extra 3
+// Crea un HOC: withStateSlice
+function withStateSlice(Comp, slice) {
+  // componente memoized
+  const MemoComp = React.memo(Comp)
+  // crea wrapper
+  function Wrapper(props, ref) {
+    const state = useAppState()
+    return <MemoComp ref={ref} state={slice(state, props)} {...props} />
+  }
+  Wrapper.displayName = `withStateSlice(${Comp.displayName || Comp.name})`
+  // Retorna memoizado, un memocomp con referencia al padre de memoconf
+  return React.memo(React.forwardRef(Wrapper))
+}
+// extra 3: Cell no maneja el AppState, lo hace su padre (memocomp).
+function Cell({state: cell, row, column}) {
   const dispatch = useAppDispatch()
   const handleClick = () => dispatch({type: 'UPDATE_GRID_CELL', row, column})
   return (
@@ -103,13 +177,10 @@ function Cell({row, column}) {
     </button>
   )
 }
-Cell = React.memo(Cell)
+Cell = withStateSlice(Cell, (state, {row, column}) => state.grid[row][column])
 
 function DogNameInput() {
-  // 🐨 replace the useAppState and useAppDispatch with a normal useState here
-  // to manage the dogName locally within this component
-  const state = useAppState()
-  const dispatch = useAppDispatch()
+  const [state, dispatch] = useDogState()
   const {dogName} = state
 
   function handleChange(event) {
@@ -140,11 +211,14 @@ function App() {
   return (
     <div className="grid-app">
       <button onClick={forceRerender}>force rerender</button>
+      {/* Dado que necesitaba tener (porque sí) el estado del perro global
+      separa contextos. En DogProvider tiene el estado del perro
+      y en AppProvider tiene el estado de la grilla */}
+      <DogProvider>
+        <DogNameInput />
+      </DogProvider>
       <AppProvider>
-        <div>
-          <DogNameInput />
-          <Grid />
-        </div>
+        <Grid />
       </AppProvider>
     </div>
   )
